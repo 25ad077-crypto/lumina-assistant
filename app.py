@@ -8,7 +8,9 @@ from dotenv import load_dotenv
 # Load local environment variables if available
 load_dotenv()
 
+# -----------------------------------------------------------------------------
 # Streamlit Page Setup
+# -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="Lumina Assistant",
     page_icon="⚡",
@@ -16,7 +18,9 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# -----------------------------------------------------------------------------
 # System Personas Presets
+# -----------------------------------------------------------------------------
 PERSONAS = {
     "🌟 Helpful Assistant": (
         "You are a helpful, empathetic, and highly capable AI assistant. "
@@ -38,15 +42,18 @@ PERSONAS = {
     "🛠️ Custom Persona": ""
 }
 
+# -----------------------------------------------------------------------------
 # State Management
+# -----------------------------------------------------------------------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
 if "api_key_input" not in st.session_state:
     st.session_state.api_key_input = ""
 
+# -----------------------------------------------------------------------------
 # Resolve API Key
-
+# -----------------------------------------------------------------------------
 def get_groq_api_key():
     # 1. Check Streamlit secrets (Cloud deployment)
     if hasattr(st, "secrets") and "GROQ_API_KEY" in st.secrets:
@@ -59,6 +66,29 @@ def get_groq_api_key():
     if st.session_state.api_key_input.strip():
         return st.session_state.api_key_input.strip()
     return None
+
+@st.cache_data(ttl=3600)
+def get_available_models(api_key):
+    fallback_models = [
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+        "qwen/qwen3.8-27b",
+        "allam-2-7b"
+    ]
+    if not api_key:
+        return fallback_models
+    try:
+        from groq import Groq
+        client = Groq(api_key=api_key)
+        all_models = [
+            m.id for m in client.models.list().data
+            if "whisper" not in m.id.lower() and "guard" not in m.id.lower()
+        ]
+        priority = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
+        ordered = [m for m in priority if m in all_models] + [m for m in all_models if m not in priority]
+        return ordered if ordered else fallback_models
+    except Exception:
+        return fallback_models
 
 # -----------------------------------------------------------------------------
 # Sidebar: Configuration & Controls
@@ -97,16 +127,12 @@ with st.sidebar:
     st.markdown("---")
 
     # Model Selection
+    available_models = get_available_models(current_api_key)
     model_choice = st.selectbox(
         "🧠 Model Architecture",
-        options=[
-            "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant",
-            "gemma2-9b-it",
-            "mixtral-8x7b-32768"
-        ],
+        options=available_models,
         index=0,
-        help="Llama 3.3 70B: highest reasoning intelligence.\nLlama 3.1 8B: ultra-fast low-latency."
+        help="Select an active LLM available on your Groq tier."
     )
 
     # Persona Selection
@@ -185,8 +211,9 @@ with st.sidebar:
     user_msgs = len([m for m in st.session_state.messages if m["role"] == "user"])
     st.caption(f"📊 Stats: {msg_count} total messages ({user_msgs} user queries)")
 
+# -----------------------------------------------------------------------------
 # Main Chat Area
-
+# -----------------------------------------------------------------------------
 header_col1, header_col2 = st.columns([0.8, 0.2])
 with header_col1:
     st.title("⚡ Lumina Assistant")
@@ -212,11 +239,13 @@ if not st.session_state.messages:
     with st.container():
         st.markdown(
             """
-            ### Welcome to Lumina Assistant! 👋
+            ### Welcome! 👋
             This application is built entirely with **free, open-source AI tools**:
             * **Ultra-Fast Open Models**: Llama 3.3 70B, Llama 3.1 8B, and Gemma 2 via Groq's free tier.
             * **Zero Cost & No Credit Card**: 100% free forever for development and personal projects.
-            * **Privacy Friendly**: Real-time token streaming with local session state.
+            * **Privacy Friendly**: Runs client-direct inference with real-time token streaming.
+            
+            *Tip: If you haven't entered an API key, get one free in 30 seconds at [console.groq.com](https://console.groq.com) and paste it into the left sidebar.*
             """
         )
         st.markdown("---")
@@ -228,7 +257,7 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 # User Input Box
-if prompt := st.chat_input("Ask Lumina anything..."):
+if prompt := st.chat_input("Ask me anything..."):
     active_key = get_groq_api_key()
     
     if not active_key:
